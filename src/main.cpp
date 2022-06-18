@@ -52,8 +52,7 @@ const int MUX_ADDRESS = 0x70;
 const int PLAYER_MUX_CHANNEL = 0;
 const byte PLAYER_MSG_VOLUME = 0;
 const byte PLAYER_MSG_TRACK = 1;
-const byte PLAYER_MSG_NEXT = 2;
-const byte PLAYER_MSG_STOP = 3;
+const byte PLAYER_MSG_STOP = 2;
 const int MAX_TRACK_NAME_LENGTH = 12; // music board only accepts 8.3 filenames
 
 const bool RESULT_OK = true;
@@ -109,13 +108,6 @@ void processI2cMessage() {
     if(result == RESULT_ERROR) {
       // ERROR RESPONSE ===================================== ??????????????
     }
-  }
-
-  if( msgType == PLAYER_MSG_NEXT ) {
-    // check for correct number of bytes... ?????
-    #ifdef DEBUG
-    Serial.print("play next track");
-    #endif
   }
 
   if( msgType == PLAYER_MSG_STOP ) {
