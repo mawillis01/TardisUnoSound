@@ -50,10 +50,14 @@ Adafruit_VS1053_FilePlayer musicPlayer =
 const int PLAYER_I2C_ADDRESS = 0x14;
 const int MUX_ADDRESS = 0x70;
 const int PLAYER_MUX_CHANNEL = 0;
-const byte PLAYER_MSG_VOLUME = 0;
-const byte PLAYER_MSG_TRACK = 1;
-const byte PLAYER_MSG_STOP = 2;
 const int MAX_TRACK_NAME_LENGTH = 12; // music board only accepts 8.3 filenames
+
+
+const byte SOUNDPLAYER_MSG_VOLUME = 0;
+const byte SOUNDPLAYER_MSG_TRACK = 1;
+const byte SOUNDPLAYER_MSG_STOP = 2;
+const byte SOUNDPLAYER_MSG_TONE = 3;
+
 
 const bool RESULT_OK = true;
 const bool RESULT_ERROR = false;
@@ -73,7 +77,7 @@ void processI2cMessage() {
   // no interrupts? ?????????????????
   uint8_t msgType = i2cMsgBuffer[0];
 
-  if( msgType == PLAYER_MSG_VOLUME ) {
+  if( msgType == SOUNDPLAYER_MSG_VOLUME ) {
     // check for correct number of bytes... ?????
     int newVolume = i2cMsgBuffer[1]; // get single byte message type
     #ifdef DEBUG
@@ -83,8 +87,7 @@ void processI2cMessage() {
     musicPlayer.setVolume(newVolume, newVolume);
   }
 
-  if( msgType == PLAYER_MSG_TRACK ) {
-    // char mychar = i2cMsgBuffer[1]; // get single byte message type
+  if( msgType == SOUNDPLAYER_MSG_TRACK ) {
     char filename[MAX_TRACK_NAME_LENGTH + 1];
     memset(filename, 0, sizeof(filename));
     memcpy(filename, (char *)&i2cMsgBuffer[1], ic2MsgHowMany - 1);
@@ -110,10 +113,22 @@ void processI2cMessage() {
     }
   }
 
-  if( msgType == PLAYER_MSG_STOP ) {
+  if( msgType == SOUNDPLAYER_MSG_STOP ) {
     musicPlayer.stopPlaying();
     #ifdef DEBUG
     Serial.println("stop playing");
+    #endif
+  }
+
+// NOT WORKING ================================================ ???
+  if( msgType == SOUNDPLAYER_MSG_TONE ) {
+    // if (musicPlayer.playingMusic) {
+    //   musicPlayer.stopPlaying();
+    // }
+    uint8_t toneFreq = i2cMsgBuffer[1]; // get single byte message type
+    musicPlayer.sineTest(0x66, 250);
+    #ifdef DEBUG
+    Serial.println("play tone");
     #endif
   }
 
@@ -177,7 +192,6 @@ void initSDCardAndMusicPlayer() {
   }
   // error handling! ????????????????????????????????????????????????????
   Serial.println(F("VS1053 found"));
-  musicPlayer.sineTest(0x44, 250);    // Make a tone to indicate VS1053 is working
 
   if (!SD.begin(CARDCS)) {
     #ifdef DEBUG
@@ -234,6 +248,8 @@ void setup() {
 
   initI2cMsgBuffer();
   initSDCardAndMusicPlayer(); // check for error ??? ===========================================
+
+  musicPlayer.sineTest(0x44, 250);    // Make a tone to indicate VS1053 is working
 
   Wire.begin(PLAYER_I2C_ADDRESS);    // join i2c bus
   Wire.onReceive(receiveMessage); // register event
