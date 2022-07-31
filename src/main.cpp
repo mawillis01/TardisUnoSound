@@ -125,7 +125,7 @@ void processI2cMessage() {
     // if (musicPlayer.playingMusic) {
     //   musicPlayer.stopPlaying();
     // }
-    uint8_t toneFreq = i2cMsgBuffer[1]; // get single byte message type
+    // uint8_t toneFreq = i2cMsgBuffer[1]; // get single byte message type
     musicPlayer.sineTest(0x66, 250);
     #ifdef DEBUG
     Serial.println("play tone");
@@ -179,8 +179,51 @@ void printDirectory(File dir, int numTabs = 0) {
      entry.close();
    }
 }
+
+void printPROGMEMtrackNames(File dir) {
+    int fileCount = 0;
+    while(true) {
+        File entry =  dir.openNextFile();
+        if (! entry) {
+            break;
+        }
+
+        if (!entry.isDirectory()) {
+            Serial.print("const char trackname_");
+            if (fileCount < 10) {
+                Serial.print("0");
+            }
+            Serial.print(fileCount);
+            Serial.print("[] PROGMEM = \"");
+            Serial.print(entry.name());
+            Serial.println("\";");
+            fileCount++;
+        }
+        entry.close();
+    }
+
+    Serial.println("\n");
+    Serial.println("PGM_P const soundTrackNames[] PROGMEM =\n{");
+    for(int i=0; i<fileCount; i++) {
+        Serial.print("\ttrackname_");
+        if (i < 10) {
+            Serial.print("0");
+        }
+        Serial.print(i);
+        Serial.println(",");
+    }
+    Serial.println("};");
+}
 #endif
 
+// PGM_P const instructions[] PROGMEM =
+// {
+//     string_1,
+//     string_2,
+//     string_3,
+//     string_4,
+//     string_5
+// };
 
 void initSDCardAndMusicPlayer() {
 
@@ -191,7 +234,9 @@ void initSDCardAndMusicPlayer() {
     #endif
   }
   // error handling! ????????????????????????????????????????????????????
+  #ifdef DEBUG
   Serial.println(F("VS1053 found"));
+  #endif
 
   if (!SD.begin(CARDCS)) {
     #ifdef DEBUG
@@ -202,7 +247,8 @@ void initSDCardAndMusicPlayer() {
 
   // list files
   #ifdef DEBUG
-  printDirectory(SD.open("/"));
+  // printDirectory(SD.open("/"));
+  printPROGMEMtrackNames(SD.open("/"));
   #endif
 
   // Set volume for left, right channels. lower numbers == louder volume
