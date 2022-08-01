@@ -50,7 +50,12 @@ Adafruit_VS1053_FilePlayer musicPlayer =
 const int PLAYER_I2C_ADDRESS = 0x14;
 const int MUX_ADDRESS = 0x70;
 const int PLAYER_MUX_CHANNEL = 0;
-const int MAX_TRACK_NAME_LENGTH = 12; // music board only accepts 8.3 filenames
+//
+//          12345678.123
+// '/sounds/FILENAME.MP3'  music board only accepts 8.3 filenames
+//  12345678901234567890
+//           1         2
+const int MAX_TRACK_NAME_LENGTH = 20;
 
 
 const byte SOUNDPLAYER_MSG_VOLUME = 0;
@@ -62,13 +67,14 @@ const byte SOUNDPLAYER_MSG_TONE = 3;
 const bool RESULT_OK = true;
 const bool RESULT_ERROR = false;
 
-// function that executes whenever data is received from master
-// this function is registered as an event, see setup()
 
-uint8_t i2cMsgBuffer[20];
+uint8_t i2cMsgBuffer[64];
 int ic2MsgHowMany = 0;
 int msgReceived = false;
+const char *soundsDir = (const char*)"/sounds/";
 
+// function that executes whenever data is received from master
+// this function is registered as an event, see setup()
 void initI2cMsgBuffer() {
   memset(i2cMsgBuffer,0,sizeof(i2cMsgBuffer));
 }
@@ -90,7 +96,8 @@ void processI2cMessage() {
   if( msgType == SOUNDPLAYER_MSG_TRACK ) {
     char filename[MAX_TRACK_NAME_LENGTH + 1];
     memset(filename, 0, sizeof(filename));
-    memcpy(filename, (char *)&i2cMsgBuffer[1], ic2MsgHowMany - 1);
+    strcpy(filename, soundsDir);
+    memcpy(&filename[strlen(soundsDir)], (char *)&i2cMsgBuffer[1], ic2MsgHowMany - 1);
     //??? send filename to music player shield
     #ifdef DEBUG
     Serial.print(F("start playing: "));
@@ -216,14 +223,6 @@ void printPROGMEMtrackNames(File dir) {
 }
 #endif
 
-// PGM_P const instructions[] PROGMEM =
-// {
-//     string_1,
-//     string_2,
-//     string_3,
-//     string_4,
-//     string_5
-// };
 
 void initSDCardAndMusicPlayer() {
 
@@ -247,13 +246,12 @@ void initSDCardAndMusicPlayer() {
 
   // list files
   #ifdef DEBUG
-  // printDirectory(SD.open("/"));
-  printPROGMEMtrackNames(SD.open("/"));
+  printPROGMEMtrackNames(SD.open(soundsDir));
   #endif
 
   // Set volume for left, right channels. lower numbers == louder volume
   // 0 (max) - 100 (off)
-  musicPlayer.setVolume(30,30);
+  musicPlayer.setVolume(60,60);
 
   // Timer interrupts are not suggested, better to use DREQ interrupt!
   //musicPlayer.useInterrupt(VS1053_FILEPLAYER_TIMER0_INT); // timer int
