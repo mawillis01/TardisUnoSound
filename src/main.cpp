@@ -66,8 +66,9 @@ const int MAX_TRACK_NAME_LENGTH = 20;
 
 const byte SOUNDPLAYER_MSG_VOLUME = 100;
 const byte SOUNDPLAYER_MSG_TRACK = 101;
-const byte SOUNDPLAYER_MSG_STOP = 102;
-const byte SOUNDPLAYER_MSG_TONE = 103;
+const byte SOUNDPLAYER_MSG_TRACK_AT_VOLUME = 102;
+const byte SOUNDPLAYER_MSG_STOP = 103;
+const byte SOUNDPLAYER_MSG_TONE = 104;
 
 const bool RESULT_OK = true;
 const bool RESULT_ERROR = false;
@@ -137,7 +138,41 @@ void processI2cMessage() {
 
     if (musicPlayer.playingMusic) {
       //??? stop? needed???? ????????????????????????????????
-      // musicPlayer.stopPlaying();
+      musicPlayer.stopPlaying();
+    }
+    bool result = musicPlayer.startPlayingFile(filename);
+    #ifdef DEBUG
+    Serial.print(F("startPlayingFile returned: "));
+    Serial.println(result);
+    #endif
+    if(result == RESULT_ERROR) {
+      // ERROR RESPONSE ===================================== ??????????????
+    }
+  }
+
+
+  if( msgType == SOUNDPLAYER_MSG_TRACK_AT_VOLUME ) {
+    int newVolume = i2cMsgBuffer[1];
+    musicPlayer.setVolume(newVolume, newVolume);
+    delay(50); // ============================================
+
+    char filename[MAX_TRACK_NAME_LENGTH + 1];
+    memset(filename, 0, sizeof(filename));
+    strcpy(filename, soundsDir);
+    memcpy(&filename[strlen(soundsDir)], (char *)&i2cMsgBuffer[2], ic2MsgHowMany - 1);
+    //??? send filename to music player shield
+    #ifdef DEBUG
+    Serial.print(F("start playing at: "));
+    Serial.print(newVolume);
+    Serial.print(F(" : "));
+    Serial.print(filename);
+    Serial.print(F(" "));
+    Serial.println(strlen(filename));
+    #endif
+
+    if (musicPlayer.playingMusic) {
+      //??? stop? needed???? ????????????????????????????????
+      musicPlayer.stopPlaying();
     }
     bool result = musicPlayer.startPlayingFile(filename);
     #ifdef DEBUG
