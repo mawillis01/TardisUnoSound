@@ -13,6 +13,7 @@
 // This example code is in the public domain.
 
 // #define DEBUG 1
+// #define OUTPUT_TRACK_CODE 1
 
 #include <SPI.h>
 #include <Wire.h>
@@ -58,11 +59,15 @@ const int PLAYER_MUX_CHANNEL = 0;
 const int MAX_TRACK_NAME_LENGTH = 20;
 
 
-const byte SOUNDPLAYER_MSG_VOLUME = 0;
-const byte SOUNDPLAYER_MSG_TRACK = 1;
-const byte SOUNDPLAYER_MSG_STOP = 2;
-const byte SOUNDPLAYER_MSG_TONE = 3;
+// const byte SOUNDPLAYER_MSG_VOLUME = 0;
+// const byte SOUNDPLAYER_MSG_TRACK = 1;
+// const byte SOUNDPLAYER_MSG_STOP = 2;
+// const byte SOUNDPLAYER_MSG_TONE = 3;
 
+const byte SOUNDPLAYER_MSG_VOLUME = 100;
+const byte SOUNDPLAYER_MSG_TRACK = 101;
+const byte SOUNDPLAYER_MSG_STOP = 102;
+const byte SOUNDPLAYER_MSG_TONE = 103;
 
 const bool RESULT_OK = true;
 const bool RESULT_ERROR = false;
@@ -79,15 +84,37 @@ void initI2cMsgBuffer() {
   memset(i2cMsgBuffer,0,sizeof(i2cMsgBuffer));
 }
 
+
+#ifdef DEBUG
+void dumpData(byte *data, int dataLength) {
+    for (int n = 0; n <= dataLength; n++) {
+        byte v = data[n];
+        // Serial.print("0x");
+        // Serial.print(v < 16 ? "0" : "");
+        // Serial.print(v, HEX);
+        Serial.print(v < 10 ? "0" : "");
+        Serial.print(v < 100 ? "0" : "");
+        Serial.print(v, DEC);
+        Serial.print(" ");
+    }
+    Serial.println();
+}
+#endif
+
 void processI2cMessage() {
   // no interrupts? ?????????????????
   uint8_t msgType = i2cMsgBuffer[0];
+
+  #ifdef DEBUG
+    // dumpData(i2cMsgBuffer, sizeof(i2cMsgBuffer));
+    dumpData(i2cMsgBuffer, ic2MsgHowMany);
+  #endif
 
   if( msgType == SOUNDPLAYER_MSG_VOLUME ) {
     // check for correct number of bytes... ?????
     int newVolume = i2cMsgBuffer[1]; // get single byte message type
     #ifdef DEBUG
-    Serial.print("setting volume to ");
+    Serial.print(F("setting volume to "));
     Serial.println(newVolume);
     #endif
     musicPlayer.setVolume(newVolume, newVolume);
@@ -101,6 +128,8 @@ void processI2cMessage() {
     //??? send filename to music player shield
     #ifdef DEBUG
     Serial.print(F("start playing: "));
+    Serial.print((char *)&i2cMsgBuffer[1]);
+    Serial.print(F(" : "));
     Serial.print(filename);
     Serial.print(F(" "));
     Serial.println(strlen(filename));
@@ -108,7 +137,7 @@ void processI2cMessage() {
 
     if (musicPlayer.playingMusic) {
       //??? stop? needed???? ????????????????????????????????
-      musicPlayer.stopPlaying();
+      // musicPlayer.stopPlaying();
     }
     bool result = musicPlayer.startPlayingFile(filename);
     #ifdef DEBUG
@@ -123,7 +152,7 @@ void processI2cMessage() {
   if( msgType == SOUNDPLAYER_MSG_STOP ) {
     musicPlayer.stopPlaying();
     #ifdef DEBUG
-    Serial.println("stop playing");
+    Serial.println(F("stop playing"));
     #endif
   }
 
@@ -135,7 +164,7 @@ void processI2cMessage() {
     // uint8_t toneFreq = i2cMsgBuffer[1]; // get single byte message type
     musicPlayer.sineTest(0x66, 250);
     #ifdef DEBUG
-    Serial.println("play tone");
+    Serial.println(F("play tone"));
     #endif
   }
 
@@ -146,21 +175,44 @@ void processI2cMessage() {
 
 
 void receiveMessage(int howManyBytes) {
+  // ????? IMPORTANT -- needs a way to stage messages to allow previous message to finish processing
+  // Wire library only supports 32 byte messages...
+  // good to know (https://www.arduino.cc/reference/en/language/functions/communication/wire/)
+
   uint8_t bufSize = sizeof(i2cMsgBuffer);
 
+  #ifdef DEBUG
+    Serial.print("rcv (");
+    Serial.print(howManyBytes);
+    Serial.print("): ");
+  #endif
   for ( uint8_t i=0; i<howManyBytes; i++) {
     byte b = Wire.read();
+
+    #ifdef DEBUG
+        // Serial.print("0x");
+        // Serial.print(b < 16 ? "0" : "");
+        // Serial.print(b, HEX);
+        Serial.print(b < 10 ? "0" : "");
+        Serial.print(b < 100 ? "0" : "");
+        Serial.print(b, DEC);
+        Serial.print(" ");
+    #endif
+
     if ( i < bufSize - 1 ) {
       i2cMsgBuffer[i] = b;
     }
     // else throw out overflow...
   }
+  #ifdef DEBUG
+    Serial.println();
+  #endif
   ic2MsgHowMany = howManyBytes;
   msgReceived = true;
 }
 
 
-#ifdef DEBUG
+#ifdef OUTPUT_TRACK_CODE
 
 /// File listing helper
 void printDirectory(File dir, int numTabs = 0) {
@@ -245,7 +297,7 @@ void initSDCardAndMusicPlayer() {
   }
 
   // list files
-  #ifdef DEBUG
+  #ifdef OUTPUT_TRACK_CODE
   printPROGMEMtrackNames(SD.open(soundsDir));
   #endif
 
@@ -260,11 +312,14 @@ void initSDCardAndMusicPlayer() {
   // audio playing
   bool result = musicPlayer.useInterrupt(VS1053_FILEPLAYER_PIN_INT);  // DREQ int
   #ifdef DEBUG
-    Serial.print("useInterrupt result: ");
+    Serial.print(F("useInterrupt result: "));
     Serial.println(result);
   #endif
   if(result == RESULT_ERROR) {
     // ERROR RESPONSE ===================================== ??????????????
+    #ifdef DEBUG
+      Serial.println(F("error setting interrupt use"));
+    #endif
   }
   
   // Play one file, don't return until complete
@@ -284,7 +339,7 @@ void setup() {
   #ifdef DEBUG
   Serial.begin(9600);           // start serial for output
 //  while (!Serial);  //  DON'T PUT THIS OUTSIDE OF AN 'IS DEBUG' block
-  Serial.println("waiting for i2c messages");
+  Serial.println(F("waiting for i2c messages"));
   #endif
 
   // if DEBUG ?????
