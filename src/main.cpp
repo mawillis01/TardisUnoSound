@@ -1,17 +1,6 @@
 #include <Arduino.h>
 
 
-// Wire Slave Receiver
-// by Nicholas Zambetti <http://www.zambetti.com>
-
-// Demonstrates use of the Wire library
-// Receives data as an I2C/TWI slave device
-// Refer to the "Wire Master Writer" example for use with this
-
-// Created 29 March 2006
-
-// This example code is in the public domain.
-
 // #define DEBUG 1
 // #define OUTPUT_TRACK_CODE 1
 
@@ -22,13 +11,9 @@
 #include <Adafruit_VS1053.h>
 #include <SD.h>
 
+// #include "G:/projects/20220611_tardis_playhouse/TardisMega/src/data/Soundtracks.h"  // nope...
+#include "data/Soundtracks.h"
 
-// define the pins used
-//#define CLK 13       // SPI Clock, shared with SD card
-//#define MISO 12      // Input data, from VS1053/SD card
-//#define MOSI 11      // Output data, to VS1053/SD card
-// Connect CLK, MISO and MOSI to hardware SPI pins. 
-// See http://arduino.cc/en/Reference/SPI "Connections"
 
 // These are the pins used for the music maker shield
 #define SHIELD_RESET  -1      // VS1053 reset pin (unused!)
@@ -41,9 +26,9 @@
 #define DREQ 3       // VS1053 Data request, ideally an Interrupt pin
 // #define DREQ 2       // VS1053 Data request, ideally an Interrupt pin  --- seems to break i2c
 
+
 Adafruit_VS1053_FilePlayer musicPlayer = 
   Adafruit_VS1053_FilePlayer(SHIELD_RESET, SHIELD_CS, SHIELD_DCS, DREQ, CARDCS);
-
 
 
 // export to .h file   ????????????????????????????????????????????????????????????
@@ -57,12 +42,6 @@ const int PLAYER_MUX_CHANNEL = 0;
 //  12345678901234567890
 //           1         2
 const int MAX_TRACK_NAME_LENGTH = 20;
-
-
-// const byte SOUNDPLAYER_MSG_VOLUME = 0;
-// const byte SOUNDPLAYER_MSG_TRACK = 1;
-// const byte SOUNDPLAYER_MSG_STOP = 2;
-// const byte SOUNDPLAYER_MSG_TONE = 3;
 
 const byte SOUNDPLAYER_MSG_VOLUME = 100;
 const byte SOUNDPLAYER_MSG_TRACK = 101;
@@ -137,7 +116,6 @@ void processI2cMessage() {
     #endif
 
     if (musicPlayer.playingMusic) {
-      //??? stop? needed???? ????????????????????????????????
       musicPlayer.stopPlaying();
     }
     bool result = musicPlayer.startPlayingFile(filename);
@@ -217,9 +195,9 @@ void receiveMessage(int howManyBytes) {
   uint8_t bufSize = sizeof(i2cMsgBuffer);
 
   #ifdef DEBUG
-    Serial.print("rcv (");
+    Serial.print(F("rcv ("));
     Serial.print(howManyBytes);
-    Serial.print("): ");
+    Serial.print(F("): "));
   #endif
   for ( uint8_t i=0; i<howManyBytes; i++) {
     byte b = Wire.read();
@@ -255,19 +233,19 @@ void printDirectory(File dir, int numTabs = 0) {
      File entry =  dir.openNextFile();
      if (! entry) {
        // no more files
-       //Serial.println("**nomorefiles**");
+       //Serial.println(F("**nomorefiles**"));
        break;
      }
      for (uint8_t i=0; i<numTabs; i++) {
-       Serial.print('\t');
+       Serial.print(F("\t"));
      }
      Serial.print(entry.name());
      if (entry.isDirectory()) {
-       Serial.println("/");
+       Serial.println(F("/"));
        printDirectory(entry, numTabs+1);
      } else {
        // files have sizes, directories do not
-       Serial.print("\t\t");
+       Serial.print(F("\t\t"));
        Serial.println(entry.size(), DEC);
      }
      entry.close();
@@ -283,30 +261,30 @@ void printPROGMEMtrackNames(File dir) {
         }
 
         if (!entry.isDirectory()) {
-            Serial.print("const char trackname_");
+            Serial.print(F("const char trackname_"));
             if (fileCount < 10) {
-                Serial.print("0");
+                Serial.print(F("0"));
             }
             Serial.print(fileCount);
-            Serial.print("[] PROGMEM = \"");
+            Serial.print(F("[] PROGMEM = \""));
             Serial.print(entry.name());
-            Serial.println("\";");
+            Serial.println(F("\";"));
             fileCount++;
         }
         entry.close();
     }
 
-    Serial.println("\n");
-    Serial.println("PGM_P const soundTrackNames[] PROGMEM =\n{");
+    Serial.println(F("\n"));
+    Serial.println(F("PGM_P const soundTrackNames[] PROGMEM =\n{"));
     for(int i=0; i<fileCount; i++) {
-        Serial.print("\ttrackname_");
+        Serial.print(F("\ttrackname_"));
         if (i < 10) {
-            Serial.print("0");
+            Serial.print(F("0"));
         }
         Serial.print(i);
-        Serial.println(",");
+        Serial.println(F(","));
     }
-    Serial.println("};");
+    Serial.println(F("};"));
 }
 #endif
 
@@ -387,6 +365,8 @@ void setup() {
 
   Wire.begin(PLAYER_I2C_ADDRESS);    // join i2c bus
   Wire.onReceive(receiveMessage); // register event
+
+  // long trackLength = Soundtracks::getTrackLength_P(1); // only worked with a copy in projects...
 }
 
 // =========================================================================
@@ -394,7 +374,6 @@ void loop() {
   if( msgReceived ) {
     processI2cMessage();
   }
-  // delay(10);  // ??? ==================================
 }
 
 
