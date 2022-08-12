@@ -1,4 +1,3 @@
-
 #ifndef SOUNDTRACKS_H
 #define SOUNDTRACKS_H
 
@@ -18,7 +17,8 @@ class Soundtracks {
         // Use  char buffer[Soundtracks::maxNameLength]  to allocate local buffer;
         //
         static void getTrackName_P(uint8_t trackNumber, char *buffer);
-        static long getTrackLength_P(uint8_t trackNumber);
+
+        static long getTrackLength(uint8_t trackNumber);
 };
 
 #endif
