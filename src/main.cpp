@@ -1,17 +1,17 @@
 #include <Arduino.h>
 
-
 // #define DEBUG 1
 // #define OUTPUT_TRACK_CODE 1
 
 #include <SPI.h>
 #include <Wire.h>
 
-#include <SPI.h>
-#include <Adafruit_VS1053.h>
 #include <SD.h>
+#include <Adafruit_VS1053.h>
 
-// #include "G:/projects/20220611_tardis_playhouse/TardisMega/src/data/Soundtracks.h"  // nope...
+#include "util/MemoryFree.h"
+#include "util/CodeGenerator.h"
+
 #include "data/Soundtracks.h"
 
 
@@ -43,25 +43,68 @@ const int PLAYER_MUX_CHANNEL = 0;
 //           1         2
 const int MAX_TRACK_NAME_LENGTH = 20;
 
-const byte SOUNDPLAYER_MSG_VOLUME = 100;
-const byte SOUNDPLAYER_MSG_TRACK = 101;
+// const byte SOUNDPLAYER_MSG_VOLUME = 100;
+// const byte SOUNDPLAYER_MSG_TRACK = 101;
+
+const byte SOUNDPLAYER_MSG_AMBIANCE = 100;
+const byte SOUNDPLAYER_MSG_EFFECT = 101;
+
 const byte SOUNDPLAYER_MSG_TRACK_AT_VOLUME = 102;
 const byte SOUNDPLAYER_MSG_STOP = 103;
 const byte SOUNDPLAYER_MSG_TONE = 104;
+const byte SOUNDPLAYER_MSG_MASTER_VOLUME = 105;
 
+uint8_t masterVolume = 100; // 0(low) .. 255(full)
+uint8_t lastRawVolumeRequest = 100; // 0 .. masterVolume
 const bool RESULT_OK = true;
 const bool RESULT_ERROR = false;
 
+const uint8_t SOUND_VOLUME_RAW_LOW = 250;
 
-uint8_t i2cMsgBuffer[64];
+uint8_t i2cMsgBuffer[32];
 int ic2MsgHowMany = 0;
 int msgReceived = false;
 const char *soundsDir = (const char*)"/sounds/";
 
-// function that executes whenever data is received from master
-// this function is registered as an event, see setup()
+
+// =========================================================================
 void initI2cMsgBuffer() {
-  memset(i2cMsgBuffer,0,sizeof(i2cMsgBuffer));
+  memset(i2cMsgBuffer, 0, sizeof(i2cMsgBuffer));
+}
+
+
+// =========================================================================
+// The useable volume range for the musicPlayer object is 0 (loudest) to 100
+// (barely audible). I want this to be reversed (0 off, 100 max) and also
+// mapped against the "master volume" to scale all volume requests against
+// whatever the user sets the volume control to. I can't just have a single
+// volume setting because different tracks have different levels which need
+// to be normalized with individula volume settings.
+// This function is called whenever a request for a "local" volume level is
+// requested such as the SOUNDPLAYER_MSG_TRACK_AT_VOLUME message.
+// Input should be [0..100]
+// masterVolume gets constrained to [x..100] so the sound is never completely
+// shut off.
+// =========================================================================
+uint8_t convertVolume(uint8_t volume) {
+  uint8_t contrainedRequest = constrain(volume, 0, 100);
+  uint8_t constrainedMaster = map(masterVolume, 0, 100, 15, 100);
+  // scale request to the currect master setting
+  uint8_t scaledToMasterVolume = map(contrainedRequest, 0, 100, 0, constrainedMaster);
+  // reverse to match sound player requirement
+  uint8_t newVolume = 100 - scaledToMasterVolume;
+
+    // Serial.print("lastRaw: ");
+    // Serial.print(lastRawVolumeRequest);
+    // Serial.print(" request: ");
+    // Serial.print(volume);
+    // Serial.print("  masterVolume: ");
+    // Serial.print(masterVolume);
+    // Serial.print("  masterToMappedVolume: ");
+    // Serial.print(scaledToMasterVolume);
+    // Serial.print("  newVolume is: ");
+    // Serial.println(newVolume); // =======================================
+  return newVolume;
 }
 
 
@@ -81,6 +124,10 @@ void dumpData(byte *data, int dataLength) {
 }
 #endif
 
+
+
+// ============================================================================
+// ============================================================================
 void processI2cMessage() {
   // no interrupts? ?????????????????
   uint8_t msgType = i2cMsgBuffer[0];
@@ -88,57 +135,85 @@ void processI2cMessage() {
   #ifdef DEBUG
     // dumpData(i2cMsgBuffer, sizeof(i2cMsgBuffer));
     dumpData(i2cMsgBuffer, ic2MsgHowMany);
+    // Serial.print("free memory: ");
+    // Serial.println(freeMemory()); // says 2279, make no sense on UNO with only 2k
   #endif
 
-  if( msgType == SOUNDPLAYER_MSG_VOLUME ) {
-    // check for correct number of bytes... ?????
-    int newVolume = i2cMsgBuffer[1]; // get single byte message type
+  // =========================================================================
+  // =========================================================================
+  if( msgType == SOUNDPLAYER_MSG_MASTER_VOLUME ) {
+    int newMasterVolume = i2cMsgBuffer[1]; // get single byte message type
     #ifdef DEBUG
-    Serial.print(F("setting volume to "));
-    Serial.println(newVolume);
+    Serial.print(F("setting master volume to "));
+    Serial.println(newMasterVolume);
     #endif
+    masterVolume = constrain(newMasterVolume, 0, 100);
+    // needs to remap last raw volume to newVolume
+    uint8_t newVolume = convertVolume(lastRawVolumeRequest);
     musicPlayer.setVolume(newVolume, newVolume);
   }
 
-  if( msgType == SOUNDPLAYER_MSG_TRACK ) {
-    char filename[MAX_TRACK_NAME_LENGTH + 1];
-    memset(filename, 0, sizeof(filename));
-    strcpy(filename, soundsDir);
-    memcpy(&filename[strlen(soundsDir)], (char *)&i2cMsgBuffer[1], ic2MsgHowMany - 1);
-    //??? send filename to music player shield
-    #ifdef DEBUG
-    Serial.print(F("start playing: "));
-    Serial.print((char *)&i2cMsgBuffer[1]);
-    Serial.print(F(" : "));
-    Serial.print(filename);
-    Serial.print(F(" "));
-    Serial.println(strlen(filename));
-    #endif
+  // =========================================================================
+  // =========================================================================
+  // if( msgType == SOUNDPLAYER_MSG_VOLUME ) {
+  //   // check for correct number of bytes... ?????
+  //   int newVolume = i2cMsgBuffer[1]; // get single byte message type
+  //   #ifdef DEBUG
+  //   Serial.print(F("setting volume to "));
+  //   Serial.println(newVolume);
+  //   #endif
+  //   musicPlayer.setVolume(newVolume, newVolume);
+  // }
 
+  // =========================================================================
+  // =========================================================================
+  // if( msgType == SOUNDPLAYER_MSG_TRACK ) {
+  //   char filename[MAX_TRACK_NAME_LENGTH + 1];
+  //   memset(filename, 0, sizeof(filename));
+  //   strcpy(filename, soundsDir);
+  //   memcpy(&filename[strlen(soundsDir)], (char *)&i2cMsgBuffer[1], ic2MsgHowMany - 1);
+  //   #ifdef DEBUG
+  //   Serial.print(F("start playing: "));
+  //   Serial.print((char *)&i2cMsgBuffer[1]);
+  //   Serial.print(F(" : "));
+  //   Serial.print(filename);
+  //   Serial.print(F(" "));
+  //   Serial.println(strlen(filename));
+  //   #endif
+
+  //   if (musicPlayer.playingMusic) {
+  //     musicPlayer.stopPlaying();
+  //   }
+
+  //   bool result = musicPlayer.startPlayingFile(filename);
+  //   #ifdef DEBUG
+  //   Serial.print(F("startPlayingFile returned: "));
+  //   Serial.println(result);
+  //   #endif
+  //   if(result == RESULT_ERROR) {
+  //     // ERROR RESPONSE ===================================== ??????????????
+  //   }
+  // }
+
+
+  // =========================================================================
+  // =========================================================================
+  if( msgType == SOUNDPLAYER_MSG_TRACK_AT_VOLUME ) {
+    int newVolume = i2cMsgBuffer[1];
+
+    // prevent jumps in volume while playing a track ===
     if (musicPlayer.playingMusic) {
       musicPlayer.stopPlaying();
     }
-    bool result = musicPlayer.startPlayingFile(filename);
-    #ifdef DEBUG
-    Serial.print(F("startPlayingFile returned: "));
-    Serial.println(result);
-    #endif
-    if(result == RESULT_ERROR) {
-      // ERROR RESPONSE ===================================== ??????????????
-    }
-  }
-
-
-  if( msgType == SOUNDPLAYER_MSG_TRACK_AT_VOLUME ) {
-    int newVolume = i2cMsgBuffer[1];
-    musicPlayer.setVolume(newVolume, newVolume);
-    delay(50); // ============================================
+    musicPlayer.setVolume(SOUND_VOLUME_RAW_LOW, SOUND_VOLUME_RAW_LOW);
+    delay(10);
+    // =================================================
 
     char filename[MAX_TRACK_NAME_LENGTH + 1];
     memset(filename, 0, sizeof(filename));
     strcpy(filename, soundsDir);
     memcpy(&filename[strlen(soundsDir)], (char *)&i2cMsgBuffer[2], ic2MsgHowMany - 1);
-    //??? send filename to music player shield
+
     #ifdef DEBUG
     Serial.print(F("start playing at: "));
     Serial.print(newVolume);
@@ -148,10 +223,6 @@ void processI2cMessage() {
     Serial.println(strlen(filename));
     #endif
 
-    if (musicPlayer.playingMusic) {
-      //??? stop? needed???? ????????????????????????????????
-      musicPlayer.stopPlaying();
-    }
     bool result = musicPlayer.startPlayingFile(filename);
     #ifdef DEBUG
     Serial.print(F("startPlayingFile returned: "));
@@ -160,8 +231,14 @@ void processI2cMessage() {
     if(result == RESULT_ERROR) {
       // ERROR RESPONSE ===================================== ??????????????
     }
+    lastRawVolumeRequest = newVolume;
+    newVolume = convertVolume(newVolume);
+    musicPlayer.setVolume(newVolume, newVolume);
   }
 
+
+  // =========================================================================
+  // =========================================================================
   if( msgType == SOUNDPLAYER_MSG_STOP ) {
     musicPlayer.stopPlaying();
     #ifdef DEBUG
@@ -169,13 +246,12 @@ void processI2cMessage() {
     #endif
   }
 
-// NOT WORKING ================================================ ???
+
+  // =========================================================================
+  // NOTE: DOES NOT WORK WHILE TRACK IS PLAYING  =============================
   if( msgType == SOUNDPLAYER_MSG_TONE ) {
-    // if (musicPlayer.playingMusic) {
-    //   musicPlayer.stopPlaying();
-    // }
-    // uint8_t toneFreq = i2cMsgBuffer[1]; // get single byte message type
-    musicPlayer.sineTest(0x66, 250);
+    uint8_t toneFreq = i2cMsgBuffer[1]; // get single byte message type
+    musicPlayer.sineTest(toneFreq, 250);
     #ifdef DEBUG
     Serial.println(F("play tone"));
     #endif
@@ -187,8 +263,15 @@ void processI2cMessage() {
 }
 
 
+
+
+
+// =========================================================================
+// Function that executes whenever data is received from master.
+// This function is registered as an interrupt response, see setup().
+// =========================================================================
 void receiveMessage(int howManyBytes) {
-  // ????? IMPORTANT -- needs a way to stage messages to allow previous message to finish processing
+  // ????? IMPORTANT -- needs a way to queue messages to allow previous message to finish processing
   // Wire library only supports 32 byte messages...
   // good to know (https://www.arduino.cc/reference/en/language/functions/communication/wire/)
 
@@ -225,70 +308,8 @@ void receiveMessage(int howManyBytes) {
 }
 
 
-#ifdef OUTPUT_TRACK_CODE
 
-/// File listing helper
-void printDirectory(File dir, int numTabs = 0) {
-   while(true) {
-     File entry =  dir.openNextFile();
-     if (! entry) {
-       // no more files
-       //Serial.println(F("**nomorefiles**"));
-       break;
-     }
-     for (uint8_t i=0; i<numTabs; i++) {
-       Serial.print(F("\t"));
-     }
-     Serial.print(entry.name());
-     if (entry.isDirectory()) {
-       Serial.println(F("/"));
-       printDirectory(entry, numTabs+1);
-     } else {
-       // files have sizes, directories do not
-       Serial.print(F("\t\t"));
-       Serial.println(entry.size(), DEC);
-     }
-     entry.close();
-   }
-}
-
-void printPROGMEMtrackNames(File dir) {
-    int fileCount = 0;
-    while(true) {
-        File entry =  dir.openNextFile();
-        if (! entry) {
-            break;
-        }
-
-        if (!entry.isDirectory()) {
-            Serial.print(F("const char trackname_"));
-            if (fileCount < 10) {
-                Serial.print(F("0"));
-            }
-            Serial.print(fileCount);
-            Serial.print(F("[] PROGMEM = \""));
-            Serial.print(entry.name());
-            Serial.println(F("\";"));
-            fileCount++;
-        }
-        entry.close();
-    }
-
-    Serial.println(F("\n"));
-    Serial.println(F("PGM_P const soundTrackNames[] PROGMEM =\n{"));
-    for(int i=0; i<fileCount; i++) {
-        Serial.print(F("\ttrackname_"));
-        if (i < 10) {
-            Serial.print(F("0"));
-        }
-        Serial.print(i);
-        Serial.println(F(","));
-    }
-    Serial.println(F("};"));
-}
-#endif
-
-
+// =========================================================================
 void initSDCardAndMusicPlayer() {
 
   if (! musicPlayer.begin()) { // initialise the music player
@@ -311,12 +332,12 @@ void initSDCardAndMusicPlayer() {
 
   // list files
   #ifdef OUTPUT_TRACK_CODE
-  printPROGMEMtrackNames(SD.open(soundsDir));
+  CodeGenerator::printPROGMEMtrackNames(soundsDir);
   #endif
 
   // Set volume for left, right channels. lower numbers == louder volume
   // 0 (max) - 100 (off)
-  musicPlayer.setVolume(60,60);
+  musicPlayer.setVolume(50,50);
 
   // Timer interrupts are not suggested, better to use DREQ interrupt!
   //musicPlayer.useInterrupt(VS1053_FILEPLAYER_TIMER0_INT); // timer int
@@ -335,18 +356,23 @@ void initSDCardAndMusicPlayer() {
     #endif
   }
   
-  // Play one file, don't return until complete
-  // Serial.println(F("Playing trdstoff"));
-  // musicPlayer.playFullFile("/trdstoff.mp3");
-  // musicPlayer.startPlayingFile("/trdstoff.mp3");
-  // Play another file in the background, REQUIRES interrupts!
-  // Serial.println(F("Playing portal01"));
-  // musicPlayer.startPlayingFile("/portal01.mp3");
+}
+
+
+void startupBeep() {
+  // NOTE: setVolume does NOT change tone volumes
+  // yes it does... but only after starting the tone? huh?
+  // this occasionally locks up with a continuous tone...
+  musicPlayer.sineTest(0x44, 250);    // Make a tone to indicate VS1053 is working
+  musicPlayer.setVolume(60,60);
+  delay(250);
+  musicPlayer.stopPlaying(); // hmmm, that fixes the comtinuous tone
 }
 
 
 
 
+// =========================================================================
 // =========================================================================
 void setup() {
   #ifdef DEBUG
@@ -355,20 +381,20 @@ void setup() {
   Serial.println(F("waiting for i2c messages"));
   #endif
 
-  // if DEBUG ?????
-  // pinMode(LED_BUILTIN, OUTPUT);
+  Serial.begin(9600);           // start serial for output
+  Serial.println(F("begin....")); // ====================================================================
 
   initI2cMsgBuffer();
   initSDCardAndMusicPlayer(); // check for error ??? ===========================================
 
-  musicPlayer.sineTest(0x44, 250);    // Make a tone to indicate VS1053 is working
-
-  Wire.begin(PLAYER_I2C_ADDRESS);    // join i2c bus
-  Wire.onReceive(receiveMessage); // register event
+  Wire.begin(PLAYER_I2C_ADDRESS);   // join i2c bus
+  Wire.onReceive(receiveMessage);   // register event
 
   // long trackLength = Soundtracks::getTrackLength_P(1); // only worked with a copy in projects...
+  startupBeep();
 }
 
+// =========================================================================
 // =========================================================================
 void loop() {
   if( msgReceived ) {
