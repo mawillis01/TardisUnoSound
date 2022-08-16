@@ -1,7 +1,6 @@
 #include <Arduino.h>
 
 // #define DEBUG 1
-// #define OUTPUT_TRACK_CODE 1
 
 #include <SPI.h>
 #include <Wire.h>
@@ -9,10 +8,7 @@
 #include <SD.h>
 #include <Adafruit_VS1053.h>
 
-#include "util/MemoryFree.h"
-#include "util/CodeGenerator.h"
-
-#include "data/Soundtracks.h"
+// #include "util/MemoryFree.h" // does not give correct results here
 
 
 // These are the pins used for the music maker shield
@@ -31,7 +27,6 @@ Adafruit_VS1053_FilePlayer musicPlayer =
   Adafruit_VS1053_FilePlayer(SHIELD_RESET, SHIELD_CS, SHIELD_DCS, DREQ, CARDCS);
 
 
-// export to .h file   ????????????????????????????????????????????????????????????
 // N.B. I2C 7-bit addresses can only be in the range of 0x08 -> 0x77
 const int PLAYER_I2C_ADDRESS = 0x14;
 const int MUX_ADDRESS = 0x70;
@@ -46,7 +41,7 @@ const int MAX_TRACK_NAME_LENGTH = 20;
 // const byte SOUNDPLAYER_MSG_VOLUME = 100;
 // const byte SOUNDPLAYER_MSG_TRACK = 101;
 
-const byte SOUNDPLAYER_MSG_AMBIANCE = 100;
+const byte SOUNDPLAYER_MSG_AMBIANCE = 100; // never use 0 here
 const byte SOUNDPLAYER_MSG_EFFECT = 101;
 
 const byte SOUNDPLAYER_MSG_TRACK_AT_VOLUME = 102;
@@ -64,7 +59,6 @@ const uint8_t SOUND_VOLUME_RAW_LOW = 250;
 uint8_t i2cMsgBuffer[32];
 int ic2MsgHowMany = 0;
 int msgReceived = false;
-const char *soundsDir = (const char*)"/sounds/";
 
 
 // =========================================================================
@@ -93,24 +87,16 @@ uint8_t convertVolume(uint8_t volume) {
   uint8_t scaledToMasterVolume = map(contrainedRequest, 0, 100, 0, constrainedMaster);
   // reverse to match sound player requirement
   uint8_t newVolume = 100 - scaledToMasterVolume;
-
-    // Serial.print("lastRaw: ");
-    // Serial.print(lastRawVolumeRequest);
-    // Serial.print(" request: ");
-    // Serial.print(volume);
-    // Serial.print("  masterVolume: ");
-    // Serial.print(masterVolume);
-    // Serial.print("  masterToMappedVolume: ");
-    // Serial.print(scaledToMasterVolume);
-    // Serial.print("  newVolume is: ");
-    // Serial.println(newVolume); // =======================================
   return newVolume;
 }
 
 
 #ifdef DEBUG
-void dumpData(byte *data, int dataLength) {
-    for (int n = 0; n <= dataLength; n++) {
+void dumpData() {
+    byte *data = i2cMsgBuffer;
+    uint16_t dataLength = sizeof(i2cMsgBuffer);
+
+    for (uint16_t n = 0; n < dataLength; n++) {
         byte v = data[n];
         // Serial.print("0x");
         // Serial.print(v < 16 ? "0" : "");
@@ -125,23 +111,57 @@ void dumpData(byte *data, int dataLength) {
 #endif
 
 
+struct PLAYREQUEST {
+  byte msgType;
+  uint8_t volume;
+  char trackName[13];
+};
 
-// ============================================================================
-// ============================================================================
-void processI2cMessage() {
-  // no interrupts? ?????????????????
-  uint8_t msgType = i2cMsgBuffer[0];
+PLAYREQUEST currentAmbiance;
+PLAYREQUEST playRequest;
 
-  #ifdef DEBUG
-    // dumpData(i2cMsgBuffer, sizeof(i2cMsgBuffer));
-    dumpData(i2cMsgBuffer, ic2MsgHowMany);
-    // Serial.print("free memory: ");
-    // Serial.println(freeMemory()); // says 2279, make no sense on UNO with only 2k
-  #endif
 
-  // =========================================================================
-  // =========================================================================
-  if( msgType == SOUNDPLAYER_MSG_MASTER_VOLUME ) {
+//
+// Use or copy return value immediately, do not store pointer to buffer
+//
+char *getTrackPath(char *trackName) {
+  static char pathName[30];
+  memset(pathName, 0, sizeof(pathName));
+  // strcpy(pathName, soundsDir);
+  strcpy_P(pathName, PSTR("/sounds/"));
+  uint8_t dirLength = strlen(pathName);
+  strncpy(&pathName[dirLength], trackName, sizeof(pathName) - dirLength);
+  return pathName;
+}
+
+
+
+void loadPlayRequest() {
+    memset(&playRequest, 0, sizeof(playRequest));
+    memcpy(&playRequest, &i2cMsgBuffer, ic2MsgHowMany - 1);
+}
+
+#ifdef DEBUG
+void showPlayRequest() {
+    Serial.print(F("msg: "));
+    Serial.print(playRequest.msgType);
+    Serial.print(F("  vol: "));
+    Serial.print(playRequest.volume);
+    Serial.print(F("  "));
+    Serial.print(getTrackPath(playRequest.trackName));
+    Serial.println();  
+}
+#endif
+
+void prepareForNextPlay() {
+    if (musicPlayer.playingMusic) {
+      musicPlayer.stopPlaying();
+    }
+    musicPlayer.setVolume(SOUND_VOLUME_RAW_LOW, SOUND_VOLUME_RAW_LOW);
+    delay(10);
+}
+
+void handleMasterVolume() {
     int newMasterVolume = i2cMsgBuffer[1]; // get single byte message type
     #ifdef DEBUG
     Serial.print(F("setting master volume to "));
@@ -151,115 +171,117 @@ void processI2cMessage() {
     // needs to remap last raw volume to newVolume
     uint8_t newVolume = convertVolume(lastRawVolumeRequest);
     musicPlayer.setVolume(newVolume, newVolume);
-  }
-
-  // =========================================================================
-  // =========================================================================
-  // if( msgType == SOUNDPLAYER_MSG_VOLUME ) {
-  //   // check for correct number of bytes... ?????
-  //   int newVolume = i2cMsgBuffer[1]; // get single byte message type
-  //   #ifdef DEBUG
-  //   Serial.print(F("setting volume to "));
-  //   Serial.println(newVolume);
-  //   #endif
-  //   musicPlayer.setVolume(newVolume, newVolume);
-  // }
-
-  // =========================================================================
-  // =========================================================================
-  // if( msgType == SOUNDPLAYER_MSG_TRACK ) {
-  //   char filename[MAX_TRACK_NAME_LENGTH + 1];
-  //   memset(filename, 0, sizeof(filename));
-  //   strcpy(filename, soundsDir);
-  //   memcpy(&filename[strlen(soundsDir)], (char *)&i2cMsgBuffer[1], ic2MsgHowMany - 1);
-  //   #ifdef DEBUG
-  //   Serial.print(F("start playing: "));
-  //   Serial.print((char *)&i2cMsgBuffer[1]);
-  //   Serial.print(F(" : "));
-  //   Serial.print(filename);
-  //   Serial.print(F(" "));
-  //   Serial.println(strlen(filename));
-  //   #endif
-
-  //   if (musicPlayer.playingMusic) {
-  //     musicPlayer.stopPlaying();
-  //   }
-
-  //   bool result = musicPlayer.startPlayingFile(filename);
-  //   #ifdef DEBUG
-  //   Serial.print(F("startPlayingFile returned: "));
-  //   Serial.println(result);
-  //   #endif
-  //   if(result == RESULT_ERROR) {
-  //     // ERROR RESPONSE ===================================== ??????????????
-  //   }
-  // }
+}
 
 
-  // =========================================================================
-  // =========================================================================
-  if( msgType == SOUNDPLAYER_MSG_TRACK_AT_VOLUME ) {
-    int newVolume = i2cMsgBuffer[1];
 
-    // prevent jumps in volume while playing a track ===
-    if (musicPlayer.playingMusic) {
-      musicPlayer.stopPlaying();
-    }
-    musicPlayer.setVolume(SOUND_VOLUME_RAW_LOW, SOUND_VOLUME_RAW_LOW);
-    delay(10);
-    // =================================================
+void startTrack(PLAYREQUEST request) {
+    musicPlayer.startPlayingFile(getTrackPath(request.trackName));
+    // bool result = musicPlayer.startPlayingFile(getTrackPath(playRequest.trackName));
+    // if(result == RESULT_ERROR) {
+    //   // ERROR RESPONSE ===================================== ??????????????
+    // }
 
-    char filename[MAX_TRACK_NAME_LENGTH + 1];
-    memset(filename, 0, sizeof(filename));
-    strcpy(filename, soundsDir);
-    memcpy(&filename[strlen(soundsDir)], (char *)&i2cMsgBuffer[2], ic2MsgHowMany - 1);
-
-    #ifdef DEBUG
-    Serial.print(F("start playing at: "));
-    Serial.print(newVolume);
-    Serial.print(F(" : "));
-    Serial.print(filename);
-    Serial.print(F(" "));
-    Serial.println(strlen(filename));
-    #endif
-
-    bool result = musicPlayer.startPlayingFile(filename);
-    #ifdef DEBUG
-    Serial.print(F("startPlayingFile returned: "));
-    Serial.println(result);
-    #endif
-    if(result == RESULT_ERROR) {
-      // ERROR RESPONSE ===================================== ??????????????
-    }
-    lastRawVolumeRequest = newVolume;
-    newVolume = convertVolume(newVolume);
+    lastRawVolumeRequest = request.volume;
+    int newVolume = convertVolume(request.volume);
     musicPlayer.setVolume(newVolume, newVolume);
-  }
+}
 
 
-  // =========================================================================
-  // =========================================================================
-  if( msgType == SOUNDPLAYER_MSG_STOP ) {
+// needs work ===============================
+// cancel previous ambiance
+// setup timer to restart or monitor isPlaying....
+void handleAmbiance() {
+    prepareForNextPlay();
+
+    loadPlayRequest();
+    #ifdef DEBUG
+    showPlayRequest();
+    #endif
+
+    startTrack(playRequest);
+    currentAmbiance = playRequest; // save for later replay
+}
+
+
+//
+// called whenever no track is playing
+//
+void restoreAmbiance() {
+    if(currentAmbiance.msgType != SOUNDPLAYER_MSG_AMBIANCE) return; // invalid
+    #ifdef DEBUG
+    Serial.print(F("restoring ambiance: "));
+    Serial.println(currentAmbiance.trackName);
+    #endif
+    prepareForNextPlay();
+    startTrack(currentAmbiance);
+}
+
+
+// needs work ====================================
+// suspend current ambiance, save current track position
+// play effect track and set timer or monitor isPlaying... what if track not found?
+void handleEffect() {
+    prepareForNextPlay();
+
+    loadPlayRequest();
+    #ifdef DEBUG
+    showPlayRequest();
+    #endif
+
+    startTrack(playRequest);
+}
+
+
+void handleStop() {
     musicPlayer.stopPlaying();
     #ifdef DEBUG
     Serial.println(F("stop playing"));
     #endif
-  }
+}
 
-
-  // =========================================================================
-  // NOTE: DOES NOT WORK WHILE TRACK IS PLAYING  =============================
-  if( msgType == SOUNDPLAYER_MSG_TONE ) {
+// NOTE: DOES NOT WORK WHILE TRACK IS PLAYING
+void handleTone() {
     uint8_t toneFreq = i2cMsgBuffer[1]; // get single byte message type
     musicPlayer.sineTest(toneFreq, 250);
     #ifdef DEBUG
     Serial.println(F("play tone"));
     #endif
+}
+
+
+
+// for testing..............
+void handleTrackAtVolume() {
+    prepareForNextPlay();
+
+    loadPlayRequest();
+    #ifdef DEBUG
+    showPlayRequest();
+    #endif
+
+    startTrack(playRequest);
+}
+
+
+
+// ============================================================================
+// ============================================================================
+void processI2cMessage() {
+  uint8_t msgType = i2cMsgBuffer[0];
+
+  switch (msgType) {
+    case SOUNDPLAYER_MSG_AMBIANCE:      handleAmbiance();     break;
+    case SOUNDPLAYER_MSG_EFFECT:        handleEffect();       break;
+    case SOUNDPLAYER_MSG_TRACK_AT_VOLUME: handleTrackAtVolume(); break;
+
+    case SOUNDPLAYER_MSG_MASTER_VOLUME: handleMasterVolume(); break;
+    case SOUNDPLAYER_MSG_STOP  :        handleStop();         break;
+    case SOUNDPLAYER_MSG_TONE  :        handleTone();         break;
   }
 
   initI2cMsgBuffer();
   msgReceived = false;
-  // restore interrupts... Serial?
 }
 
 
@@ -276,6 +298,7 @@ void receiveMessage(int howManyBytes) {
   // good to know (https://www.arduino.cc/reference/en/language/functions/communication/wire/)
 
   uint8_t bufSize = sizeof(i2cMsgBuffer);
+  initI2cMsgBuffer();
 
   #ifdef DEBUG
     Serial.print(F("rcv ("));
@@ -284,17 +307,6 @@ void receiveMessage(int howManyBytes) {
   #endif
   for ( uint8_t i=0; i<howManyBytes; i++) {
     byte b = Wire.read();
-
-    #ifdef DEBUG
-        // Serial.print("0x");
-        // Serial.print(b < 16 ? "0" : "");
-        // Serial.print(b, HEX);
-        Serial.print(b < 10 ? "0" : "");
-        Serial.print(b < 100 ? "0" : "");
-        Serial.print(b, DEC);
-        Serial.print(" ");
-    #endif
-
     if ( i < bufSize - 1 ) {
       i2cMsgBuffer[i] = b;
     }
@@ -302,6 +314,7 @@ void receiveMessage(int howManyBytes) {
   }
   #ifdef DEBUG
     Serial.println();
+    dumpData();
   #endif
   ic2MsgHowMany = howManyBytes;
   msgReceived = true;
@@ -330,10 +343,6 @@ void initSDCardAndMusicPlayer() {
     #endif
   }
 
-  // list files
-  #ifdef OUTPUT_TRACK_CODE
-  CodeGenerator::printPROGMEMtrackNames(soundsDir);
-  #endif
 
   // Set volume for left, right channels. lower numbers == louder volume
   // 0 (max) - 100 (off)
@@ -381,9 +390,13 @@ void setup() {
   Serial.println(F("waiting for i2c messages"));
   #endif
 
+  // ================================================================================================================================= ???
   Serial.begin(9600);           // start serial for output
-  Serial.println(F("begin....")); // ====================================================================
+  delay(10);
+  Serial.println(F("begin..."));
 
+
+  memset(&currentAmbiance, 0 , sizeof(currentAmbiance));
   initI2cMsgBuffer();
   initSDCardAndMusicPlayer(); // check for error ??? ===========================================
 
@@ -394,11 +407,20 @@ void setup() {
   startupBeep();
 }
 
+unsigned long playingCheckIntervalMs = 80;
+unsigned long lastPlayingCheckMs = millis();
+
 // =========================================================================
 // =========================================================================
 void loop() {
   if( msgReceived ) {
-    processI2cMessage();
+      processI2cMessage();
+  }
+
+  if(millis() > lastPlayingCheckMs + playingCheckIntervalMs) {
+    if( ! musicPlayer.playingMusic ) {
+        restoreAmbiance();
+    }
   }
 }
 
