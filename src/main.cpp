@@ -50,7 +50,8 @@ const byte SOUNDPLAYER_MSG_TONE = 104;
 const byte SOUNDPLAYER_MSG_MASTER_VOLUME = 105;
 
 uint8_t masterVolume = 100; // 0(low) .. 255(full)
-uint8_t lastRawVolumeRequest = 100; // 0 .. masterVolume
+uint8_t lastRawVolumeRequestLeft = 100; // 0 .. masterVolume
+uint8_t lastRawVolumeRequestRight = 100; // 0 .. masterVolume
 const bool RESULT_OK = true;
 const bool RESULT_ERROR = false;
 
@@ -113,7 +114,8 @@ void dumpData() {
 
 struct PLAYREQUEST {
   byte msgType;
-  uint8_t volume;
+  uint8_t volumeLeft;
+  uint8_t volumeRight;
   char trackName[13];
 };
 
@@ -169,8 +171,9 @@ void handleMasterVolume() {
     #endif
     masterVolume = constrain(newMasterVolume, 0, 100);
     // needs to remap last raw volume to newVolume
-    uint8_t newVolume = convertVolume(lastRawVolumeRequest);
-    musicPlayer.setVolume(newVolume, newVolume);
+    uint8_t newVolumeLeft = convertVolume(lastRawVolumeRequestLeft);
+    uint8_t newVolumeRight = convertVolume(lastRawVolumeRequestRight);
+    musicPlayer.setVolume(newVolumeLeft, newVolumeRight);
 }
 
 
@@ -182,9 +185,9 @@ void startTrack(PLAYREQUEST request) {
     //   // ERROR RESPONSE ===================================== ??????????????
     // }
 
-    lastRawVolumeRequest = request.volume;
-    int newVolume = convertVolume(request.volume);
-    musicPlayer.setVolume(newVolume, newVolume);
+    lastRawVolumeRequestLeft = request.volumeLeft;
+    lastRawVolumeRequestRight = request.volumeRight;
+    musicPlayer.setVolume(convertVolume(request.volumeLeft), convertVolume(request.volumeRight));
 }
 
 
